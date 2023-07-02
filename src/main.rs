@@ -27,7 +27,7 @@ impl States for AppState {
     }
 }
 
-const UV_SCALE: f32 = 1.0 / 16.0;
+const UV_SCALE: f32 = 1.0 / 20.0;
 
 #[derive(Resource)]
 struct Loading {
@@ -74,6 +74,11 @@ fn check_loaded(
         let image: &mut Image = images.get_mut(&handle.handle).unwrap();
         let array_layers = 4;
         image.reinterpret_stacked_2d_as_array(array_layers);
+        image.sampler_descriptor = ImageSampler::Descriptor(SamplerDescriptor {
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            ..Default::default()
+        });
         let a = materials.add(ArrayTextureMaterial {
             array_texture: handle.handle.clone(),
         });
@@ -195,12 +200,12 @@ fn setup(
     let mut render_mesh = Mesh::new(PrimitiveTopology::TriangleList);
 
     // 这里没有缩放 每个格子会占据一个图片？
-    
-    for uv in tex_coords.iter_mut() {
-        for c in uv.iter_mut() {
-            *c *= UV_SCALE;
-        }
-    }
+
+    // for uv in tex_coords.iter_mut() {
+    //     for c in uv.iter_mut() {
+    //         *c *= UV_SCALE;
+    //     }
+    // }
 
     render_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     render_mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
