@@ -104,7 +104,26 @@ struct ArrayTextureMaterial {
 
 impl Material for ArrayTextureMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/array_texture.wgsl".into()
+        "shaders/array_texture-2.wgsl".into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
+        "shaders/array_texture-2.wgsl".into()
+    }
+
+    fn specialize(
+        pipeline: &bevy::pbr::MaterialPipeline<Self>,
+        descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
+        layout: &bevy::render::mesh::MeshVertexBufferLayout,
+        key: bevy::pbr::MaterialPipelineKey<Self>,
+    ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
+        let vertex_layout = layout.get_layout(&[
+            Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
+            ATTRIBUTE_DATA.at_shader_location(1),
+            Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
+        ])?;
+        descriptor.vertex.buffers = vec![vertex_layout];
+        Ok(())
     }
 }
 
@@ -115,6 +134,7 @@ struct BoolVoxel(u8);
 impl BoolVoxel {
     pub const Empty: Self = BoolVoxel(0);
     pub const Grass: Self = BoolVoxel(1);
+    pub const Sold: Self = BoolVoxel(2);
 }
 
 impl MergeVoxel for BoolVoxel {
@@ -165,7 +185,13 @@ fn setup(
         for y in 1..21 {
             for x in 1..21 {
                 let i = SampleShape::linearize([x, y, z]);
-                voxels[i as usize] = BoolVoxel::Grass;
+                if ((x * x + y * y + z * z) as f32).sqrt() < 10.0 {
+                    if y < 5 {
+                        voxels[i as usize] = BoolVoxel::Grass;
+                    } else {
+                        voxels[i as usize] = BoolVoxel::Sold;
+                    }
+                }
             }
         }
     }
@@ -214,6 +240,7 @@ fn setup(
             let index = SampleShape::linearize(a);
             data.extend_from_slice(
                 &[(block_face_normal_index as u32) << 8u32 | voxels[index as usize].0 as u32; 4],
+                // &[voxels[index as usize].0 as u32; 4],
             );
         }
     }
