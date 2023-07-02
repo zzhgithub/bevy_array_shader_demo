@@ -1,0 +1,28 @@
+[package]
+name = "bevy_1"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bevy = { version = "0.10.1", features = [
+    "bevy_winit",
+    "bevy_render",
+    "png",
+    "x11",
+] }
+bevy_flycam = "0.10.1"
+block-mesh = { git = "https://github.com/bonsairobo/block-mesh-rs.git", branch = "main" }
+
+
+[workspace]
+resolver = "2" # Important! wgpu/Bevy needs this!
+
+# Enable a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
+
+# Enable high optimizations for dependencies (incl. Bevy), but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
