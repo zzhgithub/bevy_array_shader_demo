@@ -1,9 +1,9 @@
 use bevy::asset::LoadState;
 use bevy::prelude::*;
 use bevy::reflect::{TypeData, TypeUuid};
-use bevy::render::mesh::Indices;
+use bevy::render::mesh::{Indices, MeshVertexAttribute, VertexAttributeValues};
 use bevy::render::render_resource::{
-    AddressMode, AsBindGroup, PrimitiveTopology, SamplerDescriptor, ShaderRef,
+    AddressMode, AsBindGroup, PrimitiveTopology, SamplerDescriptor, ShaderRef, VertexFormat,
 };
 use bevy::render::texture::{self, ImageSampler};
 use bevy_flycam::PlayerPlugin;
@@ -34,6 +34,10 @@ struct Loading {
     is_loaded: bool,
     handle: Handle<Image>,
 }
+
+// 给Vertex Attribute 添加的值
+pub const ATTRIBUTE_DATA: MeshVertexAttribute =
+    MeshVertexAttribute::new("Vertex_Data", 0x696969, VertexFormat::Uint32);
 
 fn main() {
     App::new()
@@ -184,7 +188,17 @@ fn setup(
     let mut positions = Vec::with_capacity(num_vertices);
     let mut normals = Vec::with_capacity(num_vertices);
     let mut tex_coords = Vec::with_capacity(num_vertices);
-    for (group, face) in buffer.quads.groups.into_iter().zip(faces.into_iter()) {
+
+    let mut data = Vec::with_capacity(num_vertices);
+
+    for (block_face_normal_index, (group, face)) in buffer
+        .quads
+        .groups
+        .as_ref()
+        .into_iter()
+        .zip(faces.into_iter())
+        .enumerate()
+    {
         for quad in group.into_iter() {
             indices.extend_from_slice(&face.quad_mesh_indices(positions.len() as u32));
             positions.extend_from_slice(&face.quad_mesh_positions(&quad, 1.0));
@@ -194,6 +208,13 @@ fn setup(
                 true,
                 &quad,
             ));
+
+            // 计算出 data
+            let a: [u32; 3] = quad.minimum.map(|x| x - 1);
+            let index = SampleShape::linearize(a);
+            data.extend_from_slice(
+                &[(block_face_normal_index as u32) << 8u32 | voxels[index as usize].0 as u32; 4],
+            );
         }
     }
 
@@ -211,6 +232,7 @@ fn setup(
     render_mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     render_mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, tex_coords);
     render_mesh.set_indices(Some(Indices::U32(indices)));
+    render_mesh.insert_attribute(ATTRIBUTE_DATA, VertexAttributeValues::Uint32(data));
 
     commands.spawn(MaterialMeshBundle {
         mesh: meshes.add(render_mesh),

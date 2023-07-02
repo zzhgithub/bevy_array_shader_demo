@@ -24,7 +24,7 @@ struct FragmentInput {
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
     // let layer = i32(in.world_position.x) & 0x3;
-    let layer = i32(1);
+    let layer = i32(2);
     // Prepare a 'processed' StandardMaterial by sampling all textures to resolve
     // the material members
     var pbr_input: PbrInput = pbr_input_new();
