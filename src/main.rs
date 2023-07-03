@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy::reflect::{TypeData, TypeUuid};
 use bevy::render::mesh::{Indices, MeshVertexAttribute, VertexAttributeValues};
 use bevy::render::render_resource::{
-    AddressMode, AsBindGroup, PrimitiveTopology, SamplerDescriptor, ShaderRef, VertexFormat,
+    AddressMode, AsBindGroup, PrimitiveTopology, SamplerDescriptor, ShaderRef, VertexFormat, Extent3d,
 };
 use bevy::render::texture::{self, ImageSampler};
 use bevy_flycam::PlayerPlugin;
@@ -55,7 +55,7 @@ fn main() {
 fn load_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
     debug!("load");
     // let handle = asset_server.load("uv_checker.png");
-    let handle = asset_server.load("array_texture.png");
+    let handle = asset_server.load("texture_zzh.png");
 
     commands.insert_resource(Loading {
         is_loaded: false,
@@ -76,8 +76,13 @@ fn check_loaded(
     if let LoadState::Loaded = asset_server.get_load_state(&handle.handle) {
         handle.is_loaded = true;
         let image: &mut Image = images.get_mut(&handle.handle).unwrap();
-        let array_layers = 4;
+        let array_layers = 3;
         image.reinterpret_stacked_2d_as_array(array_layers);
+        // image.reinterpret_size(Extent3d {
+        //     width: image.texture_descriptor.size.width / array_layers,
+        //     height: image.texture_descriptor.size.height,
+        //     depth_or_array_layers: array_layers,
+        // });
         image.sampler_descriptor = ImageSampler::Descriptor(SamplerDescriptor {
             address_mode_u: AddressMode::Repeat,
             address_mode_v: AddressMode::Repeat,
