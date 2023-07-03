@@ -135,17 +135,13 @@ impl BoolVoxel {
     pub const Empty: Self = BoolVoxel(0);
     pub const Grass: Self = BoolVoxel(1);
     pub const Sold: Self = BoolVoxel(2);
+    pub const Sonw: Self = BoolVoxel(3);
 }
 
 impl MergeVoxel for BoolVoxel {
     type MergeValue = u8;
-    type MergeValueFacingNeighbour = u8;
 
     fn merge_value(&self) -> Self::MergeValue {
-        self.0
-    }
-
-    fn merge_value_facing_neighbour(&self) -> Self::MergeValueFacingNeighbour {
         self.0
     }
 }
@@ -185,13 +181,16 @@ fn setup(
         for y in 1..21 {
             for x in 1..21 {
                 let i = SampleShape::linearize([x, y, z]);
-                if ((x * x + y * y + z * z) as f32).sqrt() < 10.0 {
+                if ((x * x + y * y + z * z) as f32).sqrt() < 20.0 {
                     if y < 5 {
                         voxels[i as usize] = BoolVoxel::Grass;
+                    } else if y < 10 {
+                        voxels[i as usize] = BoolVoxel::Sonw;
                     } else {
                         voxels[i as usize] = BoolVoxel::Sold;
                     }
                 }
+                // }
             }
         }
     }
@@ -236,12 +235,15 @@ fn setup(
             ));
 
             // 计算出 data
-            let a: [u32; 3] = quad.minimum.map(|x| x - 1);
+            // let a: [u32; 3] = quad.minimum.map(|x| x - 1);
+            let a = quad.minimum;
             let index = SampleShape::linearize(a);
-            data.extend_from_slice(
-                &[(block_face_normal_index as u32) << 8u32 | voxels[index as usize].0 as u32; 4],
-                // &[voxels[index as usize].0 as u32; 4],
-            );
+            let aa = voxels[index as usize].0;
+            let c = (aa - 1) as u32;
+            let d = (block_face_normal_index as u32) << 8u32;
+            data.extend_from_slice(&[d | c; 4]);
+            // data.extend_from_slice(&[(block_face_normal_index as u32) << 8u32 | c; 4],);
+            // &[voxels[index as usize].0 as u32; 4],);
         }
     }
 
@@ -258,8 +260,8 @@ fn setup(
     render_mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     render_mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     render_mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, tex_coords);
-    render_mesh.set_indices(Some(Indices::U32(indices)));
     render_mesh.insert_attribute(ATTRIBUTE_DATA, VertexAttributeValues::Uint32(data));
+    render_mesh.set_indices(Some(Indices::U32(indices)));
 
     commands.spawn(MaterialMeshBundle {
         mesh: meshes.add(render_mesh),

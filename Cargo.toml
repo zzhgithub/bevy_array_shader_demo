@@ -13,7 +13,7 @@ bevy = { version = "0.10.1", features = [
     "x11",
 ] }
 bevy_flycam = "0.10.1"
-block-mesh = { git = "https://github.com/bonsairobo/block-mesh-rs.git", branch = "main" }
+block-mesh = "0.2.0"
 
 
 [workspace]
