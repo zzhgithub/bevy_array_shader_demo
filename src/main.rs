@@ -1,11 +1,19 @@
+use std::borrow::BorrowMut;
+use std::num::NonZeroU32;
+
 use bevy::asset::LoadState;
 use bevy::prelude::*;
 use bevy::reflect::{TypeData, TypeUuid};
 use bevy::render::mesh::{Indices, MeshVertexAttribute, VertexAttributeValues};
+use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::{
-    AddressMode, AsBindGroup, PrimitiveTopology, SamplerDescriptor, ShaderRef, VertexFormat, Extent3d,
+    AddressMode, AsBindGroup, AsBindGroupError, BindGroupDescriptor, BindGroupEntry,
+    BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType,
+    Extent3d, PreparedBindGroup, PrimitiveTopology, SamplerBindingType, SamplerDescriptor,
+    ShaderRef, ShaderStages, TextureSampleType, TextureViewDimension, VertexFormat, Sampler,
 };
-use bevy::render::texture::{self, ImageSampler};
+use bevy::render::renderer::RenderDevice;
+use bevy::render::texture::{self, FallbackImage, ImageSampler};
 use bevy_flycam::PlayerPlugin;
 use block_mesh::ndshape::{ConstShape, ConstShape3u32};
 use block_mesh::{
@@ -42,12 +50,13 @@ pub const ATTRIBUTE_DATA: MeshVertexAttribute =
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugin(MaterialPlugin::<ArrayTextureMaterial>::default())
+        .add_plugin(MaterialPlugin::<BindlessMaterial>::default())
         .add_plugin(PlayerPlugin)
         .add_state::<AppState>()
-        .add_system(load_assets.in_schedule(OnEnter(AppState::Loading)))
-        .add_system(check_loaded.in_set(OnUpdate(AppState::Loading)))
-        .add_system(setup.in_schedule(OnEnter(AppState::Run)))
+        .add_startup_system(setup)
+        // .add_system(load_assets.in_schedule(OnEnter(AppState::Loading)))
+        // .add_system(check_loaded.in_set(OnUpdate(AppState::Loading)))
+        // .add_system(setup.in_schedule(OnEnter(AppState::Run)))
         // .add_system(camera_rotation_system.in_set(OnUpdate(AppState::Run)))
         .run();
 }
@@ -161,10 +170,14 @@ impl Voxel for BoolVoxel {
     }
 }
 
+const TILE_ID: [usize; 3] = [0, 1, 2];
+
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut material_storge: ResMut<MaterialStorge>,
+    asset_server: Res<AssetServer>,
+    mut materials: ResMut<Assets<BindlessMaterial>>,
+    // mut material_storge: ResMut<MaterialStorge>,
 ) {
     debug!("setup");
     // let mut texture = textures.get_mut(&texture_handle.0).unwrap();
@@ -176,8 +189,16 @@ fn setup(
     //     ..Default::default()
     // });
 
-    type SampleShape = ConstShape3u32<22, 22, 22>;
+    let textures: Vec<_> = TILE_ID
+        .iter()
+        .map(|id| {
+            let path = format!("textures/{id:0>2}.png");
+            asset_server.load(path)
+        })
+        .collect();
+    let mat = materials.add(BindlessMaterial { textures });
 
+    type SampleShape = ConstShape3u32<22, 22, 22>;
     // Just a solid cube of voxels. We only fill the interior since we need some empty voxels to form a boundary for the mesh.
     // 这是一堆立方体体素组成的实心立方体。我们只填充内部，因为我们需要一些空的体素来形成网格的边界。
     let mut voxels = [BoolVoxel::Empty; SampleShape::SIZE as usize];
@@ -271,7 +292,7 @@ fn setup(
     commands.spawn(MaterialMeshBundle {
         mesh: meshes.add(render_mesh),
         // material: materials.add(texture_handle.0.clone().into()),
-        material: material_storge.0.clone(),
+        material: mat.clone(),
         transform: Transform::from_translation(Vec3::splat(-10.0)),
         ..Default::default()
     });
@@ -286,4 +307,143 @@ fn setup(
         ..Default::default()
     });
     //
+}
+
+#[derive(Debug, Clone, TypeUuid)]
+#[uuid = "8dd2b424-45a2-4a53-ac29-7ce356b2d5fe"]
+struct BindlessMaterial {
+    textures: Vec<Handle<Image>>,
+}
+
+const MAX_TEXTURE_COUNT: usize = 3;
+
+impl AsBindGroup for BindlessMaterial {
+    type Data = ();
+
+    fn as_bind_group(
+        &self,
+        layout: &BindGroupLayout,
+        render_device: &RenderDevice,
+        image_assets: &RenderAssets<Image>,
+        fallback_image: &FallbackImage,
+    ) -> Result<PreparedBindGroup<Self::Data>, AsBindGroupError> {
+        // retrieve the render resources from handles
+        let mut images = vec![];
+
+        let sampler = render_device.create_sampler(&SamplerDescriptor {
+            address_mode_u: AddressMode::Repeat,
+            address_mode_v: AddressMode::Repeat,
+            ..Default::default()
+        });
+
+        for handle in self.textures.iter().take(MAX_TEXTURE_COUNT) {
+            match image_assets.get(handle) {
+                Some(image) => {
+                    // let sampler = ImageSampler::Descriptor(SamplerDescriptor {
+                    //     address_mode_u: AddressMode::Repeat,
+                    //     address_mode_v: AddressMode::Repeat,
+                    //     ..Default::default()
+                    // });
+                    // image.sampler_descriptor = sampler;
+                    let mut img = image.clone();
+                    // img.sampler = render_device.create_sampler(&SamplerDescriptor {
+                    //         address_mode_u: AddressMode::Repeat,
+                    //         address_mode_v: AddressMode::Repeat,
+                    //         ..Default::default()
+                    //     });
+                    images.push(image);
+                },
+                None => return Err(AsBindGroupError::RetryNextUpdate),
+            }
+        }
+
+        let textures = vec![&fallback_image.texture_view; MAX_TEXTURE_COUNT];
+
+        // convert bevy's resource types to WGPU's references
+        let mut textures: Vec<_> = textures.into_iter().map(|texture| &**texture).collect();
+
+        // fill in up to the first `MAX_TEXTURE_COUNT` textures and samplers to the arrays
+        for (id, image) in images.into_iter().enumerate() {
+            textures[id] = &*image.texture_view;
+        }
+
+        let bind_group = render_device.create_bind_group(&BindGroupDescriptor {
+            label: "bindless_material_bind_group".into(),
+            layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureViewArray(&textures[..]),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    
+                    resource: BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        Ok(PreparedBindGroup {
+            bindings: vec![],
+            bind_group,
+            data: (),
+        })
+    }
+
+    fn bind_group_layout(render_device: &RenderDevice) -> BindGroupLayout
+    where
+        Self: Sized,
+    {
+        render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: "bindless_material_layout".into(),
+            entries: &[
+                // @group(1) @binding(0) var textures: binding_array<texture_2d<f32>>;
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: NonZeroU32::new(MAX_TEXTURE_COUNT as u32),
+                },
+                // @group(1) @binding(1) var nearest_sampler: sampler;
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                    // Note: as textures, multiple samplers can also be bound onto one binding slot.
+                    // One may need to pay attention to the limit of sampler binding amount on some platforms.
+                    // count: NonZeroU32::new(MAX_TEXTURE_COUNT as u32),
+                },
+            ],
+        })
+    }
+}
+
+impl Material for BindlessMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/array_texture-3.wgsl".into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
+        "shaders/array_texture-3.wgsl".into()
+    }
+
+    fn specialize(
+        pipeline: &bevy::pbr::MaterialPipeline<Self>,
+        descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
+        layout: &bevy::render::mesh::MeshVertexBufferLayout,
+        key: bevy::pbr::MaterialPipelineKey<Self>,
+    ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
+        let vertex_layout = layout.get_layout(&[
+            Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
+            ATTRIBUTE_DATA.at_shader_location(1),
+            Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
+        ])?;
+        descriptor.vertex.buffers = vec![vertex_layout];
+        Ok(())
+    }
 }
