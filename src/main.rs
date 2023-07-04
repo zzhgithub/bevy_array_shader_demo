@@ -9,8 +9,8 @@ use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_resource::{
     AddressMode, AsBindGroup, AsBindGroupError, BindGroupDescriptor, BindGroupEntry,
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType,
-    Extent3d, PreparedBindGroup, PrimitiveTopology, SamplerBindingType, SamplerDescriptor,
-    ShaderRef, ShaderStages, TextureSampleType, TextureViewDimension, VertexFormat, Sampler,
+    Extent3d, PreparedBindGroup, PrimitiveTopology, Sampler, SamplerBindingType, SamplerDescriptor,
+    ShaderRef, ShaderStages, TextureSampleType, TextureViewDimension, VertexFormat,
 };
 use bevy::render::renderer::RenderDevice;
 use bevy::render::texture::{self, FallbackImage, ImageSampler};
@@ -37,12 +37,6 @@ impl States for AppState {
 
 const UV_SCALE: f32 = 1.0 / 20.0;
 
-#[derive(Resource)]
-struct Loading {
-    is_loaded: bool,
-    handle: Handle<Image>,
-}
-
 // 给Vertex Attribute 添加的值
 pub const ATTRIBUTE_DATA: MeshVertexAttribute =
     MeshVertexAttribute::new("Vertex_Data", 0x696969, VertexFormat::Uint32);
@@ -61,95 +55,15 @@ fn main() {
         .run();
 }
 
-fn load_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
-    debug!("load");
-    // let handle = asset_server.load("uv_checker.png");
-    let handle = asset_server.load("texture_zzh.png");
-
-    commands.insert_resource(Loading {
-        is_loaded: false,
-        handle,
-    });
-}
-
-/// Make sure that our texture is loaded so we can change some settings on it later
-fn check_loaded(
-    mut next_state: ResMut<NextState<AppState>>,
-    mut handle: ResMut<Loading>,
-    mut images: ResMut<Assets<Image>>,
-    asset_server: Res<AssetServer>,
-    mut materials: ResMut<Assets<ArrayTextureMaterial>>,
-    mut commands: Commands,
-) {
-    debug!("check loaded");
-    if let LoadState::Loaded = asset_server.get_load_state(&handle.handle) {
-        handle.is_loaded = true;
-        let image: &mut Image = images.get_mut(&handle.handle).unwrap();
-        let array_layers = 3;
-        image.reinterpret_stacked_2d_as_array(array_layers);
-        // image.reinterpret_size(Extent3d {
-        //     width: image.texture_descriptor.size.width / array_layers,
-        //     height: image.texture_descriptor.size.height,
-        //     depth_or_array_layers: array_layers,
-        // });
-        image.sampler_descriptor = ImageSampler::Descriptor(SamplerDescriptor {
-            address_mode_u: AddressMode::Repeat,
-            address_mode_v: AddressMode::Repeat,
-            ..Default::default()
-        });
-        let a = materials.add(ArrayTextureMaterial {
-            array_texture: handle.handle.clone(),
-        });
-        commands.insert_resource(MaterialStorge(a));
-        next_state.set(AppState::Run);
-    }
-}
-
-#[derive(Debug, Resource)]
-struct MaterialStorge(Handle<ArrayTextureMaterial>);
-
-#[derive(AsBindGroup, Debug, Clone, TypeUuid)]
-#[uuid = "9c5a0ddf-1eaf-41b4-9832-ed736fd26af3"]
-struct ArrayTextureMaterial {
-    #[texture(0, dimension = "2d_array")]
-    #[sampler(1)]
-    array_texture: Handle<Image>,
-}
-
-impl Material for ArrayTextureMaterial {
-    fn fragment_shader() -> ShaderRef {
-        "shaders/array_texture-2.wgsl".into()
-    }
-
-    fn vertex_shader() -> ShaderRef {
-        "shaders/array_texture-2.wgsl".into()
-    }
-
-    fn specialize(
-        pipeline: &bevy::pbr::MaterialPipeline<Self>,
-        descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
-        layout: &bevy::render::mesh::MeshVertexBufferLayout,
-        key: bevy::pbr::MaterialPipelineKey<Self>,
-    ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
-        let vertex_layout = layout.get_layout(&[
-            Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
-            ATTRIBUTE_DATA.at_shader_location(1),
-            Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
-        ])?;
-        descriptor.vertex.buffers = vec![vertex_layout];
-        Ok(())
-    }
-}
-
 /// Basic voxel type with one byte of texture layers
 #[derive(Default, Clone, Copy)]
 struct BoolVoxel(u8);
 
 impl BoolVoxel {
     pub const Empty: Self = BoolVoxel(0);
-    pub const Grass: Self = BoolVoxel(1);
+    pub const Grass: Self = BoolVoxel(3);
     pub const Sold: Self = BoolVoxel(2);
-    pub const Sonw: Self = BoolVoxel(3);
+    pub const Stone: Self = BoolVoxel(1);
 }
 
 impl MergeVoxel for BoolVoxel {
@@ -170,6 +84,7 @@ impl Voxel for BoolVoxel {
     }
 }
 
+// 新增的id
 const TILE_ID: [usize; 3] = [0, 1, 2];
 
 fn setup(
@@ -180,22 +95,16 @@ fn setup(
     // mut material_storge: ResMut<MaterialStorge>,
 ) {
     debug!("setup");
-    // let mut texture = textures.get_mut(&texture_handle.0).unwrap();
-
-    // Set the texture to tile over the entire quad
-    // texture.sampler_descriptor = ImageSampler::Descriptor(SamplerDescriptor {
-    //     address_mode_u: AddressMode::Repeat,
-    //     address_mode_v: AddressMode::Repeat,
-    //     ..Default::default()
-    // });
-
     let textures: Vec<_> = TILE_ID
         .iter()
         .map(|id| {
+            // 这里是文件生成的规则 0x,xx
+            // > 0 表示 用0补齐两位
             let path = format!("textures/{id:0>2}.png");
             asset_server.load(path)
         })
         .collect();
+    // 这个东西 可以后续的处理！
     let mat = materials.add(BindlessMaterial { textures });
 
     type SampleShape = ConstShape3u32<22, 22, 22>;
@@ -211,7 +120,7 @@ fn setup(
                     if y < 5 {
                         voxels[i as usize] = BoolVoxel::Grass;
                     } else if y < 10 {
-                        voxels[i as usize] = BoolVoxel::Sonw;
+                        voxels[i as usize] = BoolVoxel::Stone;
                     } else {
                         voxels[i as usize] = BoolVoxel::Sold;
                     }
@@ -267,6 +176,7 @@ fn setup(
             let aa = voxels[index as usize].0;
             let c = (aa - 1) as u32;
             let d = (block_face_normal_index as u32) << 8u32;
+            // todo 这里后面要知道是那个面的方便渲染
             data.extend_from_slice(&[d | c; 4]);
             // data.extend_from_slice(&[(block_face_normal_index as u32) << 8u32 | c; 4],);
             // &[voxels[index as usize].0 as u32; 4],);
@@ -309,6 +219,7 @@ fn setup(
     //
 }
 
+// 新的 生存一组的uniform
 #[derive(Debug, Clone, TypeUuid)]
 #[uuid = "8dd2b424-45a2-4a53-ac29-7ce356b2d5fe"]
 struct BindlessMaterial {
@@ -339,20 +250,8 @@ impl AsBindGroup for BindlessMaterial {
         for handle in self.textures.iter().take(MAX_TEXTURE_COUNT) {
             match image_assets.get(handle) {
                 Some(image) => {
-                    // let sampler = ImageSampler::Descriptor(SamplerDescriptor {
-                    //     address_mode_u: AddressMode::Repeat,
-                    //     address_mode_v: AddressMode::Repeat,
-                    //     ..Default::default()
-                    // });
-                    // image.sampler_descriptor = sampler;
-                    let mut img = image.clone();
-                    // img.sampler = render_device.create_sampler(&SamplerDescriptor {
-                    //         address_mode_u: AddressMode::Repeat,
-                    //         address_mode_v: AddressMode::Repeat,
-                    //         ..Default::default()
-                    //     });
                     images.push(image);
-                },
+                }
                 None => return Err(AsBindGroupError::RetryNextUpdate),
             }
         }
@@ -371,13 +270,13 @@ impl AsBindGroup for BindlessMaterial {
             label: "bindless_material_bind_group".into(),
             layout,
             entries: &[
+                // todo 这里甚至可以是特别的类型！！
                 BindGroupEntry {
                     binding: 0,
                     resource: BindingResource::TextureViewArray(&textures[..]),
                 },
                 BindGroupEntry {
                     binding: 1,
-                    
                     resource: BindingResource::Sampler(&sampler),
                 },
             ],
